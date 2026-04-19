@@ -1,174 +1,134 @@
 import { useState, useEffect, useCallback } from "react";
+import { NEGOCIO } from "./config";
 
-const SUPABASE_URL = "https://cajrkpxhzekriznupxvl.supabase.co";
-const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNhanJrcHhoemVrcml6bnVweHZsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY0NjMzNjcsImV4cCI6MjA5MjAzOTM2N30.llz_rUPUDaqzqlqt8HiWtcH30LXs38El94nqoLd8im8";
-const ADMIN_PASSWORD = "studio2024"; // Cámbiala por la tuya
+const { url: SB_URL, anonKey: SB_KEY } = NEGOCIO.supabase;
+const H = { "apikey":SB_KEY,"Authorization":`Bearer ${SB_KEY}`,"Content-Type":"application/json" };
+const C = NEGOCIO.colores;
 
-const HEADERS = {
-  "apikey": SUPABASE_ANON_KEY,
-  "Authorization": `Bearer ${SUPABASE_ANON_KEY}`,
-  "Content-Type": "application/json",
-};
-
-async function fetchCitas(filtro = "todas", busqueda = "") {
-  let url = `${SUPABASE_URL}/rest/v1/citas?select=*&order=fecha.asc,hora.asc`;
-  if (filtro !== "todas") url += `&estado=eq.${filtro}`;
-  const res = await fetch(url, { headers: HEADERS });
-  if (!res.ok) throw new Error("Error al cargar citas");
-  let data = await res.json();
-  if (busqueda) {
-    const q = busqueda.toLowerCase();
-    data = data.filter(c =>
-      c.nombre?.toLowerCase().includes(q) ||
-      c.telefono?.includes(q) ||
-      c.servicio?.toLowerCase().includes(q)
-    );
-  }
+async function fetchCitas(fE,fP,busq) {
+  let url=`${SB_URL}/rest/v1/citas?select=*&order=fecha.asc,hora.asc`;
+  if(fE!=="todas") url+=`&estado=eq.${fE}`;
+  if(fP!=="todos") url+=`&profesional=eq.${encodeURIComponent(fP)}`;
+  const r=await fetch(url,{headers:H});
+  if(!r.ok) throw new Error();
+  let data=await r.json();
+  if(busq){const q=busq.toLowerCase();data=data.filter(c=>c.nombre?.toLowerCase().includes(q)||c.telefono?.includes(q)||c.servicio?.toLowerCase().includes(q));}
   return data;
 }
+async function updateEstado(id,estado){await fetch(`${SB_URL}/rest/v1/citas?id=eq.${id}`,{method:"PATCH",headers:{...H,"Prefer":"return=minimal"},body:JSON.stringify({estado})});}
+async function deleteCita(id){await fetch(`${SB_URL}/rest/v1/citas?id=eq.${id}`,{method:"DELETE",headers:{...H,"Prefer":"return=minimal"}});}
 
-async function actualizarEstado(id, estado) {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/citas?id=eq.${id}`, {
-    method: "PATCH",
-    headers: { ...HEADERS, "Prefer": "return=minimal" },
-    body: JSON.stringify({ estado }),
-  });
-  if (!res.ok) throw new Error("Error al actualizar");
-  return true;
-}
-
-async function eliminarCita(id) {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/citas?id=eq.${id}`, {
-    method: "DELETE",
-    headers: { ...HEADERS, "Prefer": "return=minimal" },
-  });
-  if (!res.ok) throw new Error("Error al eliminar");
-  return true;
-}
-
-const ESTADO_CONFIG = {
-  pendiente:  { label: "Pendiente",  color: "#F5A623", bg: "rgba(245,166,35,0.12)",  border: "rgba(245,166,35,0.35)" },
-  confirmada: { label: "Confirmada", color: "#4ADE80", bg: "rgba(74,222,128,0.12)",  border: "rgba(74,222,128,0.35)" },
-  completada: { label: "Completada", color: "#60A5FA", bg: "rgba(96,165,250,0.12)",  border: "rgba(96,165,250,0.35)" },
-  cancelada:  { label: "Cancelada",  color: "#F87171", bg: "rgba(248,113,113,0.12)", border: "rgba(248,113,113,0.35)" },
+const ESTADOS={
+  pendiente: {label:"Pendiente", color:"#F5A623",bg:"rgba(245,166,35,0.12)",border:"rgba(245,166,35,0.35)"},
+  confirmada:{label:"Confirmada",color:"#4ADE80",bg:"rgba(74,222,128,0.12)",border:"rgba(74,222,128,0.35)"},
+  completada:{label:"Completada",color:"#60A5FA",bg:"rgba(96,165,250,0.12)",border:"rgba(96,165,250,0.35)"},
+  cancelada: {label:"Cancelada", color:"#F87171",bg:"rgba(248,113,113,0.12)",border:"rgba(248,113,113,0.35)"},
 };
 
-function EstadoBadge({ estado }) {
-  const cfg = ESTADO_CONFIG[estado] || ESTADO_CONFIG.pendiente;
-  return (
-    <span style={{
-      background: cfg.bg, color: cfg.color,
-      border: `1px solid ${cfg.border}`,
-      borderRadius: 20, padding: "3px 10px",
-      fontSize: 11, fontWeight: 600, letterSpacing: 0.5,
-      whiteSpace: "nowrap",
-    }}>{cfg.label}</span>
-  );
-}
-
-function formatFecha(fecha) {
-  if (!fecha) return "—";
-  const d = new Date(fecha + "T12:00:00");
-  return d.toLocaleDateString("es-ES", { weekday: "short", day: "numeric", month: "short" });
-}
-
-// ─── Login ────────────────────────────────────────────────────
-function LoginScreen({ onLogin }) {
-  const [pw, setPw] = useState("");
-  const [error, setError] = useState(false);
-  const [shake, setShake] = useState(false);
-
-  function handleLogin() {
-    if (pw === ADMIN_PASSWORD) {
-      onLogin();
-    } else {
-      setError(true);
-      setShake(true);
-      setTimeout(() => setShake(false), 500);
+function injectAdminCSS() {
+  if(document.getElementById("adm-css")) return;
+  const st=document.createElement("style"); st.id="adm-css";
+  st.textContent=`
+    *{box-sizing:border-box}
+    body{margin:0;background:#080809}
+    @keyframes fi{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+    @keyframes fadeUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+    @keyframes shake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-8px)}40%,80%{transform:translateX(8px)}}
+    @keyframes slideIn{from{transform:translateX(-100%)}to{transform:translateX(0)}}
+    input::placeholder{color:#3A3532}
+    input:focus{outline:none;border-color:${C.acento}88!important}
+    .tr-row:hover{background:rgba(255,255,255,0.025)!important}
+    .icon-btn:hover{opacity:0.8}
+    /* Mobile overrides */
+    @media(max-width:640px){
+      .admin-main{padding:16px!important}
+      .stats-grid{grid-template-columns:1fr 1fr!important}
+      .stats-card-val{font-size:18px!important}
+      .desktop-table{display:none!important}
+      .mobile-cards{display:flex!important}
+      .toolbar-row{flex-direction:column!important;align-items:stretch!important}
+      .filtros-wrap{overflow-x:auto;padding-bottom:4px}
+      .sidebar-desktop{display:none!important}
+      .topbar-mobile{display:flex!important}
+      .stats-full-grid{grid-template-columns:1fr 1fr!important}
     }
-  }
+    @media(min-width:641px){
+      .mobile-cards{display:none!important}
+      .topbar-mobile{display:none!important}
+      .sidebar-desktop{display:flex!important}
+    }
+    .mobile-cards{flex-direction:column;gap:10px}
+  `;
+  document.head.appendChild(st);
+}
 
-  return (
-    <div style={s.loginRoot}>
-      <div style={{ ...s.loginCard, animation: shake ? "shake 0.4s ease" : "fadeUp 0.5s ease" }}>
-        <div style={s.loginMark}>◈</div>
-        <h1 style={s.loginTitle}>Panel Admin</h1>
-        <p style={s.loginSub}>Acceso restringido · Solo para el profesional</p>
-        <input
-          style={{ ...s.loginInput, ...(error ? s.loginInputError : {}) }}
-          type="password"
-          placeholder="Contraseña"
-          value={pw}
-          onChange={e => { setPw(e.target.value); setError(false); }}
-          onKeyDown={e => e.key === "Enter" && handleLogin()}
-          autoFocus
-        />
-        {error && <p style={s.loginError}>Contraseña incorrecta. Inténtalo de nuevo.</p>}
-        <button style={s.loginBtn} onClick={handleLogin}>Entrar →</button>
+function Badge({estado}){
+  const e=ESTADOS[estado]||ESTADOS.pendiente;
+  return <span style={{background:e.bg,color:e.color,border:`1px solid ${e.border}`,borderRadius:20,padding:"3px 10px",fontSize:11,fontWeight:600,whiteSpace:"nowrap"}}>{e.label}</span>;
+}
+function fmt(f){if(!f)return"—";return new Date(f+"T12:00:00").toLocaleDateString("es-ES",{weekday:"short",day:"numeric",month:"short"});}
+
+// ─── Login ────────────────────────────────────────────────
+function Login({onLogin}){
+  const [pw,setPw]=useState(""),isErr=useState(false),isShake=useState(false);
+  const [err,setErr]=[isErr[0],isErr[1]],[shake,setShake]=[isShake[0],isShake[1]];
+  function go(){if(pw===NEGOCIO.adminPassword)onLogin();else{setErr(true);setShake(true);setTimeout(()=>setShake(false),500);}}
+  return(
+    <div style={{minHeight:"100vh",background:C.fondo,display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"Georgia,serif",padding:16}}>
+      <div style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:20,padding:"40px 28px",width:"100%",maxWidth:340,display:"flex",flexDirection:"column",alignItems:"center",gap:16,animation:shake?"shake 0.4s ease":"fadeUp 0.5s ease"}}>
+        <span style={{fontSize:36,color:C.acento}}>{NEGOCIO.icono}</span>
+        <h1 style={{margin:0,fontSize:24,fontWeight:400,color:C.texto}}>Panel Admin</h1>
+        <p style={{margin:0,fontSize:12,color:C.textoSuave,textAlign:"center"}}>{NEGOCIO.nombre}</p>
+        <input style={{width:"100%",background:"rgba(255,255,255,0.04)",border:`1px solid ${err?"rgba(248,113,113,0.5)":"rgba(255,255,255,0.1)"}`,borderRadius:10,padding:"14px 16px",color:C.texto,fontSize:16,fontFamily:"inherit",marginTop:8}}
+          type="password" placeholder="Contraseña" value={pw}
+          onChange={e=>{setPw(e.target.value);setErr(false);}}
+          onKeyDown={e=>e.key==="Enter"&&go()} autoFocus/>
+        {err&&<p style={{margin:0,fontSize:12,color:"#F87171"}}>Contraseña incorrecta</p>}
+        <button style={{width:"100%",background:`linear-gradient(135deg,${C.acento},${C.acentoB})`,border:"none",borderRadius:10,padding:14,color:"#0C0C0F",fontWeight:700,fontSize:16,cursor:"pointer",fontFamily:"inherit"}} onClick={go}>Entrar →</button>
       </div>
     </div>
   );
 }
 
-// ─── Modal detalle ────────────────────────────────────────────
-function CitaModal({ cita, onClose, onUpdate }) {
-  const [estado, setEstado] = useState(cita.estado);
-  const [saving, setSaving] = useState(false);
-
-  async function handleEstado(nuevoEstado) {
-    setSaving(true);
-    await actualizarEstado(cita.id, nuevoEstado);
-    setEstado(nuevoEstado);
-    onUpdate(cita.id, nuevoEstado);
-    setSaving(false);
-  }
-
-  return (
-    <div style={s.modalOverlay} onClick={onClose}>
-      <div style={s.modalCard} onClick={e => e.stopPropagation()}>
-        <div style={s.modalHeader}>
-          <div>
-            <h2 style={s.modalTitle}>{cita.servicio}</h2>
-            <p style={s.modalSub}>{formatFecha(cita.fecha)} · {cita.hora}</p>
-          </div>
-          <button style={s.modalClose} onClick={onClose}>✕</button>
+// ─── Modal detalle ────────────────────────────────────────
+function Modal({cita,onClose,onUpdate}){
+  const [estado,setEstado]=useState(cita.estado),[saving,setSaving]=useState(false);
+  const prof=NEGOCIO.profesionales.find(p=>p.nombre===cita.profesional);
+  async function cambiar(e){setSaving(true);await updateEstado(cita.id,e);setEstado(e);onUpdate(cita.id,e);setSaving(false);}
+  return(
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.8)",display:"flex",alignItems:"flex-end",justifyContent:"center",zIndex:200,backdropFilter:"blur(4px)"}} onClick={onClose}>
+      <div style={{background:"#111113",border:"1px solid rgba(255,255,255,0.1)",borderRadius:"18px 18px 0 0",width:"100%",maxWidth:520,maxHeight:"90vh",overflow:"auto",fontFamily:"Georgia,serif"}} onClick={e=>e.stopPropagation()}>
+        {/* Handle */}
+        <div style={{display:"flex",justifyContent:"center",padding:"12px 0 0"}}>
+          <div style={{width:40,height:4,borderRadius:2,background:"rgba(255,255,255,0.15)"}}/>
         </div>
-
-        <div style={s.modalBody}>
-          <div style={s.detailGrid}>
-            <Detail label="Cliente" val={cita.nombre} />
-            <Detail label="Teléfono" val={cita.telefono} />
-            <Detail label="Email" val={cita.email || "—"} />
-            <Detail label="Duración" val={`${cita.duracion} min`} />
-            <Detail label="Precio" val={`$${cita.precio}`} highlight />
-            <Detail label="Estado actual" val={<EstadoBadge estado={estado} />} />
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",padding:"16px 20px 0"}}>
+          <div>
+            <h2 style={{margin:0,fontSize:20,fontWeight:400,color:C.texto}}>{cita.servicio}</h2>
+            <p style={{margin:"4px 0 0",fontSize:13,color:C.acento}}>{prof?.emoji} {cita.profesional} · {fmt(cita.fecha)} · {cita.hora}</p>
           </div>
-
-          {cita.notas && (
-            <div style={s.notasBox}>
-              <span style={s.notasLabel}>Notas</span>
-              <p style={s.notasText}>{cita.notas}</p>
-            </div>
-          )}
-
-          <div style={s.estadoActions}>
-            <p style={s.estadoTitle}>Cambiar estado:</p>
-            <div style={s.estadoBtns}>
-              {Object.entries(ESTADO_CONFIG).map(([key, cfg]) => (
-                <button
-                  key={key}
-                  disabled={saving || estado === key}
-                  style={{
-                    ...s.estadoBtn,
-                    background: estado === key ? cfg.bg : "rgba(255,255,255,0.04)",
-                    border: `1px solid ${estado === key ? cfg.border : "rgba(255,255,255,0.08)"}`,
-                    color: estado === key ? cfg.color : "#7A7570",
-                    opacity: saving ? 0.5 : 1,
-                  }}
-                  onClick={() => handleEstado(key)}
-                >
-                  {cfg.label}
-                </button>
+          <button style={{background:"rgba(255,255,255,0.06)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:8,width:32,height:32,color:C.texto,cursor:"pointer",fontSize:14,flexShrink:0,fontFamily:"inherit"}} onClick={onClose}>✕</button>
+        </div>
+        <div style={{padding:"16px 20px 28px",display:"flex",flexDirection:"column",gap:16}}>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:12}}>
+            {[["Cliente",cita.nombre],["Teléfono",cita.telefono],["Email",cita.email||"—"],["Duración",`${cita.duracion} min`],["Precio",`$${cita.precio}`],["Estado",<Badge estado={estado}/>]].map(([l,v],i)=>(
+              <div key={i} style={{display:"flex",flexDirection:"column",gap:3}}>
+                <span style={{fontSize:10,color:C.textoSuave,letterSpacing:0.5}}>{l}</span>
+                <span style={{fontSize:14,fontWeight:600,color:i===4?C.acento:C.texto}}>{v}</span>
+              </div>
+            ))}
+          </div>
+          {cita.notas&&<div style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:10,padding:"12px 14px"}}>
+            <span style={{fontSize:10,color:C.textoSuave,display:"block",marginBottom:5}}>Notas</span>
+            <p style={{margin:0,fontSize:13,color:"#A09890",lineHeight:1.5}}>{cita.notas}</p>
+          </div>}
+          <div>
+            <p style={{margin:"0 0 10px",fontSize:11,color:C.textoSuave,letterSpacing:0.5}}>Cambiar estado:</p>
+            <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+              {Object.entries(ESTADOS).map(([k,e])=>(
+                <button key={k} disabled={saving||estado===k}
+                  style={{padding:"9px 16px",borderRadius:8,fontSize:12,cursor:estado===k?"default":"pointer",fontFamily:"inherit",fontWeight:600,background:estado===k?e.bg:"rgba(255,255,255,0.04)",border:`1px solid ${estado===k?e.border:"rgba(255,255,255,0.08)"}`,color:estado===k?e.color:C.textoSuave,opacity:saving?0.5:1,transition:"all 0.2s",touchAction:"manipulation"}}
+                  onClick={()=>cambiar(k)}>{e.label}</button>
               ))}
             </div>
           </div>
@@ -178,346 +138,265 @@ function CitaModal({ cita, onClose, onUpdate }) {
   );
 }
 
-function Detail({ label, val, highlight }) {
-  return (
-    <div style={s.detailItem}>
-      <span style={s.detailLabel}>{label}</span>
-      <span style={{ ...s.detailVal, color: highlight ? "#F5A623" : "#F0EDE8" }}>{val}</span>
+// ─── Cita Card (mobile) ───────────────────────────────────
+function CitaCard({cita,onEdit,onDelete,deleting}){
+  const prof=NEGOCIO.profesionales.find(p=>p.nombre===cita.profesional);
+  return(
+    <div style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:14,padding:"16px",display:"flex",flexDirection:"column",gap:10}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+        <div>
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+            <span style={{fontSize:18}}>{prof?.emoji||"👤"}</span>
+            <span style={{fontWeight:700,color:C.texto,fontSize:15}}>{cita.profesional}</span>
+          </div>
+          <p style={{margin:0,fontSize:13,color:C.acento,fontWeight:600}}>{cita.servicio}</p>
+        </div>
+        <Badge estado={cita.estado}/>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,fontSize:12}}>
+        <div><span style={{color:C.textoSuave}}>Fecha: </span><span style={{color:C.texto,fontWeight:600}}>{fmt(cita.fecha)}</span></div>
+        <div><span style={{color:C.textoSuave}}>Hora: </span><span style={{color:C.acento,fontWeight:700}}>{cita.hora}</span></div>
+        <div><span style={{color:C.textoSuave}}>Cliente: </span><span style={{color:C.texto,fontWeight:600}}>{cita.nombre}</span></div>
+        <div><span style={{color:C.textoSuave}}>Total: </span><span style={{color:C.acento,fontWeight:700}}>${cita.precio}</span></div>
+      </div>
+      <div style={{fontSize:12,color:C.textoSuave}}>{cita.telefono}</div>
+      <div style={{display:"flex",gap:8,paddingTop:4}}>
+        <button style={{flex:1,padding:"10px",borderRadius:8,border:"1px solid rgba(255,255,255,0.1)",background:"rgba(255,255,255,0.04)",color:"#A09890",cursor:"pointer",fontSize:13,fontFamily:"inherit"}} onClick={()=>onEdit(cita)}>✎ Editar</button>
+        <button style={{padding:"10px 14px",borderRadius:8,border:"1px solid rgba(248,113,113,0.2)",background:"rgba(248,113,113,0.05)",color:"#F87171",cursor:"pointer",fontSize:13,fontFamily:"inherit"}} onClick={()=>onDelete(cita.id)} disabled={deleting===cita.id}>{deleting===cita.id?"…":"✕"}</button>
+      </div>
     </div>
   );
 }
 
-// ─── Panel principal ──────────────────────────────────────────
-export default function AdminPanel() {
-  const [authed, setAuthed] = useState(false);
-  const [citas, setCitas] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [filtro, setFiltro] = useState("todas");
-  const [busqueda, setBusqueda] = useState("");
-  const [selectedCita, setSelectedCita] = useState(null);
-  const [deleting, setDeleting] = useState(null);
-  const [error, setError] = useState(null);
-  const [vista, setVista] = useState("lista"); // lista | stats
+// ─── Sidebar content ──────────────────────────────────────
+function SidebarContent({filtroP,setFiltroP,vista,setVista,onLogout}){
+  return(
+    <>
+      <div style={{padding:"24px 20px 20px",borderBottom:"1px solid rgba(255,255,255,0.06)"}}>
+        <div style={{fontSize:26,color:C.acento,marginBottom:6}}>{NEGOCIO.icono}</div>
+        <p style={{margin:0,fontSize:13,fontWeight:700,letterSpacing:3,color:C.texto}}>{NEGOCIO.nombre.slice(0,12).toUpperCase()}</p>
+        <p style={{margin:"3px 0 0",fontSize:10,color:C.textoSuave}}>Panel Admin</p>
+      </div>
+      <div style={{padding:"16px",borderBottom:"1px solid rgba(255,255,255,0.06)"}}>
+        <p style={{margin:"0 0 8px",fontSize:9,color:C.textoSuave,letterSpacing:1}}>PROFESIONAL</p>
+        {[{nombre:"todos",emoji:"👥",especialidad:"Todos"},...NEGOCIO.profesionales].map(p=>(
+          <button key={p.nombre||p.id}
+            style={{display:"flex",alignItems:"center",gap:8,width:"100%",padding:"9px 10px",borderRadius:8,border:"none",background:filtroP===(p.nombre||"todos")?`${C.acento}18`:"transparent",color:filtroP===(p.nombre||"todos")?C.acento:C.textoSuave,fontSize:13,cursor:"pointer",textAlign:"left",fontFamily:"inherit",marginBottom:2,touchAction:"manipulation"}}
+            onClick={()=>setFiltroP(p.nombre||"todos")}>
+            <span style={{fontSize:16}}>{p.emoji}</span>{p.nombre||"Todos"}
+          </button>
+        ))}
+      </div>
+      <div style={{display:"flex",flexDirection:"column",gap:4,padding:"12px",flex:1}}>
+        {[{id:"lista",icon:"▤",label:"Citas"},{id:"stats",icon:"◎",label:"Resumen"}].map(item=>(
+          <button key={item.id}
+            style={{display:"flex",alignItems:"center",gap:10,padding:"10px 12px",borderRadius:8,border:vista===item.id?`1px solid ${C.acento}33`:"1px solid transparent",background:vista===item.id?`${C.acento}18`:"transparent",color:vista===item.id?C.acento:C.textoSuave,fontSize:13,cursor:"pointer",textAlign:"left",fontFamily:"inherit",touchAction:"manipulation"}}
+            onClick={()=>setVista(item.id)}>
+            <span style={{fontSize:16,width:20,textAlign:"center"}}>{item.icon}</span>{item.label}
+          </button>
+        ))}
+      </div>
+      <button style={{margin:"0 12px 16px",padding:"10px 12px",border:"1px solid rgba(255,255,255,0.06)",borderRadius:8,background:"transparent",color:"#3A3532",fontSize:12,cursor:"pointer",fontFamily:"inherit"}} onClick={onLogout}>← Salir</button>
+    </>
+  );
+}
 
-  const cargar = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await fetchCitas(filtro, busqueda);
-      setCitas(data);
-    } catch (e) {
-      setError("No se pudo conectar con Supabase.");
-    } finally {
-      setLoading(false);
-    }
-  }, [filtro, busqueda]);
+// ─── Panel principal ──────────────────────────────────────
+export default function AdminPanel(){
+  injectAdminCSS();
+  const [authed,setAuthed]   = useState(false);
+  const [citas,setCitas]     = useState([]);
+  const [loading,setLoading] = useState(false);
+  const [filtroE,setFiltroE] = useState("todas");
+  const [filtroP,setFiltroP] = useState("todos");
+  const [busq,setBusq]       = useState("");
+  const [sel,setSel]         = useState(null);
+  const [deleting,setDel]    = useState(null);
+  const [error,setError]     = useState(null);
+  const [vista,setVista]     = useState("lista");
+  const [drawer,setDrawer]   = useState(false);
 
-  useEffect(() => { if (authed) cargar(); }, [authed, cargar]);
+  const cargar=useCallback(async()=>{
+    setLoading(true);setError(null);
+    try{setCitas(await fetchCitas(filtroE,filtroP,busq));}
+    catch{setError("No se pudo conectar.");}
+    finally{setLoading(false);}
+  },[filtroE,filtroP,busq]);
 
-  function handleUpdate(id, nuevoEstado) {
-    setCitas(prev => prev.map(c => c.id === id ? { ...c, estado: nuevoEstado } : c));
-  }
+  useEffect(()=>{if(authed)cargar();},[authed,cargar]);
 
-  async function handleDelete(id) {
-    setDeleting(id);
-    await eliminarCita(id);
-    setCitas(prev => prev.filter(c => c.id !== id));
-    setDeleting(null);
-  }
+  function upd(id,e){setCitas(p=>p.map(c=>c.id===id?{...c,estado:e}:c));}
+  async function del(id){setDel(id);await deleteCita(id);setCitas(p=>p.filter(c=>c.id!==id));setDel(null);}
 
-  // Stats
-  const stats = {
-    total: citas.length,
-    pendientes: citas.filter(c => c.estado === "pendiente").length,
-    confirmadas: citas.filter(c => c.estado === "confirmada").length,
-    ingresos: citas.filter(c => c.estado !== "cancelada").reduce((a, c) => a + (c.precio || 0), 0),
+  const stats={
+    total:citas.length,
+    pendientes:citas.filter(c=>c.estado==="pendiente").length,
+    confirmadas:citas.filter(c=>c.estado==="confirmada").length,
+    ingresos:citas.filter(c=>c.estado!=="cancelada").reduce((a,c)=>a+(c.precio||0),0),
   };
 
-  if (!authed) return <LoginScreen onLogin={() => setAuthed(true)} />;
+  if(!authed) return <Login onLogin={()=>setAuthed(true)}/>;
 
-  return (
-    <div style={s.root}>
-      {/* Sidebar */}
-      <div style={s.sidebar}>
-        <div style={s.sidebarTop}>
-          <div style={s.sidebarMark}>◈</div>
-          <p style={s.sidebarBrand}>STUDIO</p>
-          <p style={s.sidebarRole}>Panel Admin</p>
-        </div>
+  const fBtn=(active)=>({padding:"8px 12px",borderRadius:20,border:`1px solid ${active?`${C.acento}55`:"rgba(255,255,255,0.08)"}`,background:active?`${C.acento}18`:"rgba(255,255,255,0.03)",color:active?C.acento:C.textoSuave,fontSize:11,cursor:"pointer",whiteSpace:"nowrap",fontFamily:"inherit",touchAction:"manipulation"});
 
-        <nav style={s.nav}>
-          {[
-            { id: "lista", icon: "▤", label: "Citas" },
-            { id: "stats", icon: "◎", label: "Resumen" },
-          ].map(item => (
-            <button key={item.id}
-              style={{ ...s.navItem, ...(vista === item.id ? s.navItemActive : {}) }}
-              onClick={() => setVista(item.id)}>
-              <span style={s.navIcon}>{item.icon}</span>
-              {item.label}
-            </button>
-          ))}
-        </nav>
+  return(
+    <div style={{display:"flex",minHeight:"100vh",background:"#080809",color:C.texto,fontFamily:"Georgia,serif"}}>
 
-        <button style={s.logoutBtn} onClick={() => setAuthed(false)}>
-          ← Salir
-        </button>
+      {/* Sidebar desktop */}
+      <div className="sidebar-desktop" style={{width:210,background:"rgba(255,255,255,0.02)",borderRight:"1px solid rgba(255,255,255,0.06)",flexDirection:"column",flexShrink:0}}>
+        <SidebarContent filtroP={filtroP} setFiltroP={setFiltroP} vista={vista} setVista={setVista} onLogout={()=>setAuthed(false)}/>
       </div>
 
-      {/* Main */}
-      <div style={s.main}>
+      {/* Drawer móvil overlay */}
+      {drawer&&<div style={{position:"fixed",inset:0,zIndex:150,display:"flex"}}>
+        <div style={{width:220,background:"#0E0E11",borderRight:"1px solid rgba(255,255,255,0.08)",display:"flex",flexDirection:"column",animation:"slideIn 0.25s ease",height:"100%",overflow:"auto"}}>
+          <div style={{display:"flex",justifyContent:"flex-end",padding:"12px 12px 0"}}>
+            <button style={{background:"transparent",border:"none",color:C.textoSuave,fontSize:20,cursor:"pointer",fontFamily:"inherit"}} onClick={()=>setDrawer(false)}>✕</button>
+          </div>
+          <SidebarContent filtroP={filtroP} setFiltroP={(v)=>{setFiltroP(v);setDrawer(false);}} vista={vista} setVista={(v)=>{setVista(v);setDrawer(false);}} onLogout={()=>setAuthed(false)}/>
+        </div>
+        <div style={{flex:1,background:"rgba(0,0,0,0.5)"}} onClick={()=>setDrawer(false)}/>
+      </div>}
 
-        {/* Stats cards */}
-        <div style={s.statsRow}>
-          {[
-            { label: "Total citas", val: stats.total, icon: "📅" },
-            { label: "Pendientes", val: stats.pendientes, icon: "⏳" },
-            { label: "Confirmadas", val: stats.confirmadas, icon: "✓" },
-            { label: "Ingresos est.", val: `$${stats.ingresos}`, icon: "💰" },
-          ].map((st, i) => (
-            <div key={i} style={s.statCard}>
-              <span style={s.statIcon}>{st.icon}</span>
-              <div>
-                <p style={s.statVal}>{st.val}</p>
-                <p style={s.statLabel}>{st.label}</p>
-              </div>
-            </div>
-          ))}
+      {/* Main */}
+      <div style={{flex:1,overflow:"auto"}}>
+
+        {/* Topbar móvil */}
+        <div className="topbar-mobile" style={{alignItems:"center",justifyContent:"space-between",padding:"14px 16px",borderBottom:"1px solid rgba(255,255,255,0.06)",background:"rgba(255,255,255,0.02)"}}>
+          <button style={{background:"transparent",border:"1px solid rgba(255,255,255,0.1)",borderRadius:8,padding:"8px 12px",color:C.texto,cursor:"pointer",fontSize:16,fontFamily:"inherit"}} onClick={()=>setDrawer(true)}>☰</button>
+          <span style={{fontSize:14,fontWeight:700,letterSpacing:3,color:C.texto}}>{NEGOCIO.icono} ADMIN</span>
+          <button style={{background:"transparent",border:"1px solid rgba(255,255,255,0.1)",borderRadius:8,padding:"8px 12px",color:C.textoSuave,cursor:"pointer",fontSize:12,fontFamily:"inherit"}} onClick={()=>setAuthed(false)}>Salir</button>
         </div>
 
-        {vista === "lista" && (
-          <>
-            {/* Toolbar */}
-            <div style={s.toolbar}>
-              <input
-                style={s.searchInput}
-                placeholder="Buscar por nombre, teléfono o servicio..."
-                value={busqueda}
-                onChange={e => setBusqueda(e.target.value)}
-              />
-              <div style={s.filtros}>
-                {["todas", "pendiente", "confirmada", "completada", "cancelada"].map(f => (
-                  <button key={f}
-                    style={{ ...s.filtroBtn, ...(filtro === f ? s.filtroBtnActive : {}) }}
-                    onClick={() => setFiltro(f)}>
-                    {f.charAt(0).toUpperCase() + f.slice(1)}
-                  </button>
-                ))}
+        <div className="admin-main" style={{padding:24}}>
+
+          {/* Stats grid */}
+          <div className="stats-grid" style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12,marginBottom:24}}>
+            {[["📅","Total",stats.total],["⏳","Pendientes",stats.pendientes],["✓","Confirmadas",stats.confirmadas],["💰","Ingresos",`$${stats.ingresos}`]].map(([ic,lb,v],i)=>(
+              <div key={i} style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:12,padding:"14px 12px",display:"flex",alignItems:"center",gap:10}}>
+                <span style={{fontSize:22,flexShrink:0}}>{ic}</span>
+                <div style={{minWidth:0}}>
+                  <p className="stats-card-val" style={{margin:0,fontSize:20,fontWeight:700,color:C.acento,lineHeight:1}}>{v}</p>
+                  <p style={{margin:0,fontSize:10,color:C.textoSuave,marginTop:3,whiteSpace:"nowrap",overflow:"hidden",textOverflow:"ellipsis"}}>{lb}</p>
+                </div>
               </div>
-              <button style={s.refreshBtn} onClick={cargar} title="Actualizar">↺</button>
+            ))}
+          </div>
+
+          {vista==="lista"&&<>
+            {/* Toolbar */}
+            <div className="toolbar-row" style={{display:"flex",gap:10,marginBottom:16,alignItems:"center"}}>
+              <input style={{flex:1,background:"rgba(255,255,255,0.04)",border:"1px solid rgba(255,255,255,0.08)",borderRadius:8,padding:"10px 13px",color:C.texto,fontSize:14,fontFamily:"inherit",width:"100%"}}
+                placeholder="Buscar nombre, teléfono..." value={busq} onChange={e=>setBusq(e.target.value)}/>
+              <button style={{width:40,height:40,borderRadius:8,border:"1px solid rgba(255,255,255,0.08)",background:"rgba(255,255,255,0.04)",color:C.texto,fontSize:18,cursor:"pointer",flexShrink:0,fontFamily:"inherit"}} onClick={cargar}>↺</button>
+            </div>
+            <div className="filtros-wrap" style={{display:"flex",gap:6,marginBottom:16}}>
+              {["todas","pendiente","confirmada","completada","cancelada"].map(f=>(
+                <button key={f} style={fBtn(filtroE===f)} onClick={()=>setFiltroE(f)}>{f.charAt(0).toUpperCase()+f.slice(1)}</button>
+              ))}
             </div>
 
-            {/* Tabla */}
-            {error && <div style={s.errorMsg}>⚠️ {error}</div>}
+            {error&&<div style={{background:"rgba(255,80,80,0.08)",border:"1px solid rgba(255,80,80,0.2)",borderRadius:8,padding:"12px",fontSize:13,color:"#F87171",marginBottom:12}}>⚠️ {error}</div>}
 
             {loading
-              ? <div style={s.loading}>Cargando citas desde Supabase...</div>
-              : citas.length === 0
-                ? <div style={s.empty}>
-                    <p style={s.emptyIcon}>📭</p>
-                    <p style={s.emptyText}>No hay citas que coincidan</p>
-                  </div>
-                : (
-                  <div style={s.tableWrap}>
-                    <table style={s.table}>
+              ?<div style={{textAlign:"center",padding:48,color:C.textoSuave,fontStyle:"italic"}}>Cargando...</div>
+              :citas.length===0
+                ?<div style={{textAlign:"center",padding:48}}>
+                  <p style={{fontSize:40,margin:"0 0 10px"}}>📭</p>
+                  <p style={{color:C.textoSuave,fontSize:14}}>No hay citas</p>
+                </div>
+                :<>
+                  {/* Desktop table */}
+                  <div className="desktop-table" style={{background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:14,overflow:"hidden"}}>
+                    <table style={{width:"100%",borderCollapse:"collapse"}}>
                       <thead>
-                        <tr>
-                          {["Fecha", "Hora", "Cliente", "Servicio", "Precio", "Estado", "Acciones"].map(h => (
-                            <th key={h} style={s.th}>{h}</th>
-                          ))}
-                        </tr>
+                        <tr>{["Profesional","Fecha","Hora","Cliente","Servicio","Precio","Estado",""].map(h=>(
+                          <th key={h} style={{padding:"12px 14px",textAlign:"left",fontSize:10,color:C.textoSuave,letterSpacing:1,borderBottom:"1px solid rgba(255,255,255,0.06)",fontWeight:400}}>{h}</th>
+                        ))}</tr>
                       </thead>
                       <tbody>
-                        {citas.map((c, i) => (
-                          <tr key={c.id} style={{ ...s.tr, animationDelay: `${i * 0.04}s` }}>
-                            <td style={s.td}>{formatFecha(c.fecha)}</td>
-                            <td style={{ ...s.td, fontWeight: 700, color: "#F5A623" }}>{c.hora}</td>
-                            <td style={s.td}>
-                              <div style={s.clienteName}>{c.nombre}</div>
-                              <div style={s.clientePhone}>{c.telefono}</div>
-                            </td>
-                            <td style={s.td}>{c.servicio}</td>
-                            <td style={{ ...s.td, fontWeight: 600 }}>${c.precio}</td>
-                            <td style={s.td}><EstadoBadge estado={c.estado} /></td>
-                            <td style={s.td}>
-                              <div style={s.acciones}>
-                                <button style={s.accionBtn} onClick={() => setSelectedCita(c)} title="Ver detalle">
-                                  ✎
-                                </button>
-                                <button
-                                  style={{ ...s.accionBtn, ...s.accionBtnDanger }}
-                                  onClick={() => handleDelete(c.id)}
-                                  disabled={deleting === c.id}
-                                  title="Eliminar">
-                                  {deleting === c.id ? "..." : "✕"}
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
+                        {citas.map((c,i)=>{
+                          const p=NEGOCIO.profesionales.find(x=>x.nombre===c.profesional);
+                          return(
+                            <tr key={c.id} className="tr-row" style={{borderBottom:"1px solid rgba(255,255,255,0.04)",animation:`fi 0.3s ease both`,animationDelay:`${i*0.03}s`}}>
+                              <td style={{padding:"12px 14px",fontSize:13}}>
+                                <span style={{fontSize:16,marginRight:6}}>{p?.emoji||"👤"}</span>
+                                <span style={{fontWeight:600,color:C.texto}}>{c.profesional}</span>
+                              </td>
+                              <td style={{padding:"12px 14px",fontSize:13,color:C.texto}}>{fmt(c.fecha)}</td>
+                              <td style={{padding:"12px 14px",fontSize:13,color:C.acento,fontWeight:700}}>{c.hora}</td>
+                              <td style={{padding:"12px 14px",fontSize:13}}>
+                                <div style={{fontWeight:600,color:C.texto}}>{c.nombre}</div>
+                                <div style={{fontSize:11,color:C.textoSuave}}>{c.telefono}</div>
+                              </td>
+                              <td style={{padding:"12px 14px",fontSize:13,color:C.texto}}>{c.servicio}</td>
+                              <td style={{padding:"12px 14px",fontSize:13,fontWeight:600,color:C.acento}}>${c.precio}</td>
+                              <td style={{padding:"12px 14px"}}><Badge estado={c.estado}/></td>
+                              <td style={{padding:"12px 14px"}}>
+                                <div style={{display:"flex",gap:6}}>
+                                  <button className="icon-btn" style={{width:30,height:30,borderRadius:6,border:"1px solid rgba(255,255,255,0.1)",background:"rgba(255,255,255,0.04)",color:"#A09890",cursor:"pointer",fontSize:13,fontFamily:"inherit"}} onClick={()=>setSel(c)}>✎</button>
+                                  <button className="icon-btn" style={{width:30,height:30,borderRadius:6,border:"1px solid rgba(248,113,113,0.2)",background:"rgba(248,113,113,0.05)",color:"#F87171",cursor:"pointer",fontSize:13,fontFamily:"inherit"}} onClick={()=>del(c.id)} disabled={deleting===c.id}>{deleting===c.id?"…":"✕"}</button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
-                )
+                  {/* Mobile cards */}
+                  <div className="mobile-cards">
+                    {citas.map(c=><CitaCard key={c.id} cita={c} onEdit={setSel} onDelete={del} deleting={deleting}/>)}
+                  </div>
+                </>
             }
-          </>
-        )}
+          </>}
 
-        {vista === "stats" && (
-          <div style={s.statsPage}>
-            <h2 style={s.statsPageTitle}>Resumen general</h2>
-            <div style={s.statsCards}>
-              {Object.entries(ESTADO_CONFIG).map(([key, cfg]) => {
-                const count = citas.filter(c => c.estado === key).length;
-                const ingresos = citas.filter(c => c.estado === key).reduce((a, c) => a + (c.precio || 0), 0);
-                return (
-                  <div key={key} style={{ ...s.statsFullCard, borderColor: cfg.border, background: cfg.bg }}>
-                    <EstadoBadge estado={key} />
-                    <p style={{ ...s.sfcNum, color: cfg.color }}>{count}</p>
-                    <p style={s.sfcLabel}>citas</p>
-                    <p style={{ ...s.sfcIngresos, color: cfg.color }}>${ingresos}</p>
-                    <p style={s.sfcLabel}>ingresos estimados</p>
+          {vista==="stats"&&<div style={{display:"flex",flexDirection:"column",gap:20}}>
+            <h2 style={{margin:0,fontSize:22,fontWeight:400,color:C.texto}}>Resumen{filtroP!=="todos"?` · ${filtroP}`:""}</h2>
+            <div className="stats-full-grid" style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12}}>
+              {Object.entries(ESTADOS).map(([k,e])=>{
+                const count=citas.filter(c=>c.estado===k).length;
+                const ing=citas.filter(c=>c.estado===k).reduce((a,c)=>a+(c.precio||0),0);
+                return(
+                  <div key={k} style={{borderRadius:14,border:`1px solid ${e.border}`,background:e.bg,padding:"16px",display:"flex",flexDirection:"column",gap:3}}>
+                    <Badge estado={k}/>
+                    <p style={{margin:"10px 0 0",fontSize:32,fontWeight:700,color:e.color,lineHeight:1}}>{count}</p>
+                    <p style={{margin:0,fontSize:10,color:C.textoSuave}}>citas</p>
+                    <p style={{margin:"8px 0 0",fontSize:18,fontWeight:700,color:e.color}}>${ing}</p>
+                    <p style={{margin:0,fontSize:10,color:C.textoSuave}}>ingresos</p>
                   </div>
                 );
               })}
             </div>
-
-            <div style={s.serviciosWrap}>
-              <h3 style={s.serviciosTitle}>Servicios más solicitados</h3>
-              {Object.entries(
-                citas.reduce((acc, c) => {
-                  acc[c.servicio] = (acc[c.servicio] || 0) + 1;
-                  return acc;
-                }, {})
-              ).sort((a, b) => b[1] - a[1]).map(([nombre, count]) => (
-                <div key={nombre} style={s.servicioRow}>
-                  <span style={s.servicioNombre}>{nombre}</span>
-                  <div style={s.servicioBarWrap}>
-                    <div style={{ ...s.servicioBar, width: `${(count / citas.length) * 100}%` }} />
+            <div style={{background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:14,padding:20}}>
+              <h3 style={{margin:"0 0 16px",fontSize:15,fontWeight:400,color:"#A09890"}}>Por profesional</h3>
+              {NEGOCIO.profesionales.map(p=>{
+                const total=citas.filter(c=>c.profesional===p.nombre).length;
+                const ing=citas.filter(c=>c.profesional===p.nombre&&c.estado!=="cancelada").reduce((a,c)=>a+(c.precio||0),0);
+                const pct=citas.length?Math.round((total/citas.length)*100):0;
+                return(
+                  <div key={p.id} style={{display:"flex",alignItems:"center",gap:12,marginBottom:14,padding:"12px 14px",background:"rgba(255,255,255,0.02)",borderRadius:10,border:"1px solid rgba(255,255,255,0.05)"}}>
+                    <span style={{fontSize:24,flexShrink:0}}>{p.emoji}</span>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{display:"flex",justifyContent:"space-between",marginBottom:6,flexWrap:"wrap",gap:4}}>
+                        <span style={{fontWeight:600,color:C.texto,fontSize:13}}>{p.nombre}</span>
+                        <span style={{fontSize:12,color:C.acento,fontWeight:700}}>{total} citas · ${ing}</span>
+                      </div>
+                      <div style={{height:5,background:"rgba(255,255,255,0.06)",borderRadius:3,overflow:"hidden"}}>
+                        <div style={{height:"100%",background:`linear-gradient(90deg,${C.acento},${C.acentoB})`,width:`${pct}%`,borderRadius:3}}/>
+                      </div>
+                    </div>
                   </div>
-                  <span style={s.servicioCount}>{count}</span>
-                </div>
-              ))}
+                );
+              })}
             </div>
-          </div>
-        )}
+          </div>}
+
+        </div>
       </div>
 
-      {selectedCita && (
-        <CitaModal
-          cita={selectedCita}
-          onClose={() => setSelectedCita(null)}
-          onUpdate={handleUpdate}
-        />
-      )}
+      {sel&&<Modal cita={sel} onClose={()=>setSel(null)} onUpdate={upd}/>}
     </div>
   );
 }
-
-const s = {
-  // Login
-  loginRoot: { minHeight:"100vh", background:"#0C0C0F", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'Georgia','Times New Roman',serif" },
-  loginCard: { background:"rgba(255,255,255,0.03)", border:"1px solid rgba(255,255,255,0.08)", borderRadius:20, padding:"48px 40px", width:340, display:"flex", flexDirection:"column", alignItems:"center", gap:16 },
-  loginMark: { fontSize:36, color:"#F5A623" },
-  loginTitle: { margin:0, fontSize:28, fontWeight:400, color:"#F0EDE8", letterSpacing:-0.5 },
-  loginSub: { margin:0, fontSize:12, color:"#7A7570", letterSpacing:0.5, textAlign:"center" },
-  loginInput: { width:"100%", background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.1)", borderRadius:10, padding:"13px 16px", color:"#F0EDE8", fontSize:15, fontFamily:"inherit", outline:"none", boxSizing:"border-box", marginTop:8 },
-  loginInputError: { border:"1px solid rgba(248,113,113,0.5)", background:"rgba(248,113,113,0.05)" },
-  loginError: { margin:0, fontSize:12, color:"#F87171", textAlign:"center" },
-  loginBtn: { width:"100%", background:"linear-gradient(135deg,#F5A623,#FF6B35)", border:"none", borderRadius:10, padding:"13px", color:"#0C0C0F", fontWeight:700, fontSize:15, cursor:"pointer", letterSpacing:0.5, marginTop:4 },
-
-  // Layout
-  root: { display:"flex", minHeight:"100vh", background:"#080809", color:"#F0EDE8", fontFamily:"'Georgia','Times New Roman',serif" },
-  sidebar: { width:200, background:"rgba(255,255,255,0.02)", borderRight:"1px solid rgba(255,255,255,0.06)", display:"flex", flexDirection:"column", padding:"32px 0", flexShrink:0 },
-  sidebarTop: { padding:"0 24px 32px", borderBottom:"1px solid rgba(255,255,255,0.06)" },
-  sidebarMark: { fontSize:28, color:"#F5A623", marginBottom:8 },
-  sidebarBrand: { margin:0, fontSize:16, fontWeight:700, letterSpacing:4, color:"#F0EDE8" },
-  sidebarRole: { margin:"4px 0 0", fontSize:11, color:"#7A7570", letterSpacing:1 },
-  nav: { display:"flex", flexDirection:"column", gap:4, padding:"24px 12px", flex:1 },
-  navItem: { display:"flex", alignItems:"center", gap:10, padding:"10px 12px", borderRadius:8, border:"none", background:"transparent", color:"#7A7570", fontSize:13, cursor:"pointer", textAlign:"left", transition:"all 0.2s" },
-  navItemActive: { background:"rgba(245,166,35,0.1)", color:"#F5A623", border:"1px solid rgba(245,166,35,0.2)" },
-  navIcon: { fontSize:16, width:20, textAlign:"center" },
-  logoutBtn: { margin:"0 12px", padding:"10px 12px", border:"1px solid rgba(255,255,255,0.06)", borderRadius:8, background:"transparent", color:"#3A3532", fontSize:12, cursor:"pointer" },
-
-  main: { flex:1, padding:"32px", overflow:"auto" },
-
-  // Stats row
-  statsRow: { display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:16, marginBottom:28 },
-  statCard: { background:"rgba(255,255,255,0.03)", border:"1px solid rgba(255,255,255,0.07)", borderRadius:12, padding:"20px", display:"flex", alignItems:"center", gap:16 },
-  statIcon: { fontSize:28 },
-  statVal: { margin:0, fontSize:24, fontWeight:700, color:"#F5A623" },
-  statLabel: { margin:0, fontSize:11, color:"#7A7570", letterSpacing:0.5, marginTop:2 },
-
-  // Toolbar
-  toolbar: { display:"flex", gap:12, marginBottom:20, alignItems:"center", flexWrap:"wrap" },
-  searchInput: { flex:1, minWidth:200, background:"rgba(255,255,255,0.04)", border:"1px solid rgba(255,255,255,0.08)", borderRadius:8, padding:"10px 14px", color:"#F0EDE8", fontSize:13, fontFamily:"inherit", outline:"none" },
-  filtros: { display:"flex", gap:6, flexWrap:"wrap" },
-  filtroBtn: { padding:"8px 14px", borderRadius:20, border:"1px solid rgba(255,255,255,0.08)", background:"rgba(255,255,255,0.03)", color:"#7A7570", fontSize:11, cursor:"pointer", letterSpacing:0.5 },
-  filtroBtnActive: { background:"rgba(245,166,35,0.12)", border:"1px solid rgba(245,166,35,0.4)", color:"#F5A623" },
-  refreshBtn: { width:38, height:38, borderRadius:8, border:"1px solid rgba(255,255,255,0.08)", background:"rgba(255,255,255,0.04)", color:"#F0EDE8", fontSize:18, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" },
-
-  // Table
-  tableWrap: { background:"rgba(255,255,255,0.02)", border:"1px solid rgba(255,255,255,0.06)", borderRadius:14, overflow:"hidden" },
-  table: { width:"100%", borderCollapse:"collapse" },
-  th: { padding:"14px 16px", textAlign:"left", fontSize:10, color:"#7A7570", letterSpacing:1, borderBottom:"1px solid rgba(255,255,255,0.06)", fontWeight:400 },
-  tr: { borderBottom:"1px solid rgba(255,255,255,0.04)", animation:"fadeSlideIn 0.3s ease both", transition:"background 0.15s" },
-  td: { padding:"14px 16px", fontSize:13, color:"#F0EDE8", verticalAlign:"middle" },
-  clienteName: { fontWeight:600, marginBottom:2 },
-  clientePhone: { fontSize:11, color:"#7A7570" },
-  acciones: { display:"flex", gap:8 },
-  accionBtn: { width:30, height:30, borderRadius:6, border:"1px solid rgba(255,255,255,0.1)", background:"rgba(255,255,255,0.04)", color:"#A09890", cursor:"pointer", fontSize:14, display:"flex", alignItems:"center", justifyContent:"center" },
-  accionBtnDanger: { border:"1px solid rgba(248,113,113,0.2)", color:"#F87171" },
-
-  loading: { textAlign:"center", padding:"60px", color:"#7A7570", fontSize:14, fontStyle:"italic" },
-  empty: { textAlign:"center", padding:"60px" },
-  emptyIcon: { fontSize:48, margin:"0 0 12px" },
-  emptyText: { color:"#7A7570", fontSize:14 },
-  errorMsg: { background:"rgba(255,80,80,0.08)", border:"1px solid rgba(255,80,80,0.2)", borderRadius:8, padding:"12px 16px", fontSize:13, color:"#F87171", marginBottom:16 },
-
-  // Modal
-  modalOverlay: { position:"fixed", inset:0, background:"rgba(0,0,0,0.7)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:100, backdropFilter:"blur(4px)" },
-  modalCard: { background:"#111113", border:"1px solid rgba(255,255,255,0.1)", borderRadius:18, width:"90%", maxWidth:480, maxHeight:"90vh", overflow:"auto" },
-  modalHeader: { display:"flex", justifyContent:"space-between", alignItems:"flex-start", padding:"28px 28px 0" },
-  modalTitle: { margin:0, fontSize:22, fontWeight:400 },
-  modalSub: { margin:"4px 0 0", fontSize:13, color:"#F5A623" },
-  modalClose: { background:"rgba(255,255,255,0.06)", border:"1px solid rgba(255,255,255,0.08)", borderRadius:8, width:32, height:32, color:"#F0EDE8", cursor:"pointer", fontSize:14, display:"flex", alignItems:"center", justifyContent:"center" },
-  modalBody: { padding:"24px 28px 28px", display:"flex", flexDirection:"column", gap:20 },
-  detailGrid: { display:"grid", gridTemplateColumns:"1fr 1fr", gap:16 },
-  detailItem: { display:"flex", flexDirection:"column", gap:4 },
-  detailLabel: { fontSize:10, color:"#7A7570", letterSpacing:0.5 },
-  detailVal: { fontSize:14, fontWeight:600, color:"#F0EDE8" },
-  notasBox: { background:"rgba(255,255,255,0.03)", border:"1px solid rgba(255,255,255,0.06)", borderRadius:10, padding:"14px 16px" },
-  notasLabel: { fontSize:10, color:"#7A7570", letterSpacing:0.5, display:"block", marginBottom:6 },
-  notasText: { margin:0, fontSize:13, color:"#A09890", lineHeight:1.6 },
-  estadoActions: {},
-  estadoTitle: { margin:"0 0 10px", fontSize:11, color:"#7A7570", letterSpacing:0.5 },
-  estadoBtns: { display:"flex", gap:8, flexWrap:"wrap" },
-  estadoBtn: { padding:"8px 16px", borderRadius:8, fontSize:12, cursor:"pointer", fontFamily:"inherit", fontWeight:600, transition:"all 0.2s" },
-
-  // Stats page
-  statsPage: { display:"flex", flexDirection:"column", gap:28 },
-  statsPageTitle: { margin:0, fontSize:24, fontWeight:400 },
-  statsCards: { display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:16 },
-  statsFullCard: { borderRadius:14, border:"1px solid", padding:"24px 20px", display:"flex", flexDirection:"column", gap:4 },
-  sfcNum: { margin:"12px 0 0", fontSize:40, fontWeight:700, lineHeight:1 },
-  sfcLabel: { margin:0, fontSize:11, color:"#7A7570", letterSpacing:0.5 },
-  sfcIngresos: { margin:"12px 0 0", fontSize:22, fontWeight:700 },
-  serviciosWrap: { background:"rgba(255,255,255,0.02)", border:"1px solid rgba(255,255,255,0.06)", borderRadius:14, padding:"24px" },
-  serviciosTitle: { margin:"0 0 20px", fontSize:16, fontWeight:400, color:"#A09890" },
-  servicioRow: { display:"flex", alignItems:"center", gap:16, marginBottom:14 },
-  servicioNombre: { width:160, fontSize:13, flexShrink:0 },
-  servicioBarWrap: { flex:1, height:6, background:"rgba(255,255,255,0.06)", borderRadius:3, overflow:"hidden" },
-  servicioBar: { height:"100%", background:"linear-gradient(90deg,#F5A623,#FF6B35)", borderRadius:3, transition:"width 0.5s ease" },
-  servicioCount: { width:24, textAlign:"right", fontSize:13, color:"#F5A623", fontWeight:700 },
-};
-
-const st = document.createElement("style");
-st.textContent = `
-  @keyframes fadeSlideIn { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
-  @keyframes fadeUp { from { opacity:0; transform:translateY(20px); } to { opacity:1; transform:translateY(0); } }
-  @keyframes shake { 0%,100%{transform:translateX(0)} 20%,60%{transform:translateX(-8px)} 40%,80%{transform:translateX(8px)} }
-  tbody tr:hover { background: rgba(255,255,255,0.03) !important; }
-  input::placeholder { color: #3A3532; }
-  input:focus { border-color: rgba(245,166,35,0.4) !important; }
-`;
-document.head.appendChild(st);
